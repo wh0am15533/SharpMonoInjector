@@ -44,13 +44,13 @@ namespace SharpMonoInjector.Gui.ViewModels
 
         private async void ExecuteRefreshCommand(object parameter)
         {
-            File.AppendAllText(AppDomain.CurrentDomain.BaseDirectory + "\\DebugLog.txt", "[MainWindowViewModel] - ExecuteRefresh Entered\r\n");
+            Log("[MainWindowViewModel] - ExecuteRefresh Entered\r\n");
             IsRefreshing = true;
             Status = "Refreshing processes";
             ObservableCollection<MonoProcess> processes = new ObservableCollection<MonoProcess>();
 
-            File.AppendAllText(AppDomain.CurrentDomain.BaseDirectory + "\\DebugLog.txt", "[MainWindowViewModel] - Setting Process Access Rights:\r\n\tPROCESS_QUERY_INFORMATION\r\n\tPROCESS_VM_READ\r\n");
-            File.AppendAllText(AppDomain.CurrentDomain.BaseDirectory + "\\DebugLog.txt", "[MainWindowViewModel] - Checking Processes for Mono\r\n");
+            Log("[MainWindowViewModel] - Setting Process Access Rights:\r\n\tPROCESS_QUERY_INFORMATION\r\n\tPROCESS_VM_READ\r\n");
+            Log("[MainWindowViewModel] - Checking Processes for Mono\r\n");
 
             await Task.Run(() =>
             {
@@ -58,34 +58,43 @@ namespace SharpMonoInjector.Gui.ViewModels
 
                 foreach (Process p in Process.GetProcesses())
                 {
-                    var t = GetProcessUser(p);
-
-                    if (t != null)
+                    try
                     {
-                        if (p.Id == cp)
-                            continue;
+                        var t = GetProcessUser(p);
 
-                        const ProcessAccessRights flags = ProcessAccessRights.PROCESS_QUERY_INFORMATION | ProcessAccessRights.PROCESS_VM_READ;
-                        IntPtr handle;
-
-                        if ((handle = Native.OpenProcess(flags, false, p.Id)) != IntPtr.Zero)
+                        if (t != null)
                         {
-                            File.AppendAllText(AppDomain.CurrentDomain.BaseDirectory + "\\DebugLog.txt", "\t" + p.ProcessName + ".exe\r\n");
-                            if (ProcessUtils.GetMonoModule(handle, out IntPtr mono))
+                            if (p.Id == cp)
+                                continue;
+
+                            const ProcessAccessRights flags = ProcessAccessRights.PROCESS_QUERY_INFORMATION |
+                                                              ProcessAccessRights.PROCESS_VM_READ;
+                            IntPtr handle;
+
+                            Log($"\tOpening {p.ProcessName}.exe - ");
+                            if ((handle = Native.OpenProcess(flags, false, p.Id)) != IntPtr.Zero)
                             {
-                                File.AppendAllText(AppDomain.CurrentDomain.BaseDirectory + "\\DebugLog.txt", "\t\tMono found in process: " + p.ProcessName + ".exe\r\n");
-                                processes.Add(new MonoProcess
+                                Log($"OK\r\n");
+                                if (ProcessUtils.GetMonoModule(handle, out IntPtr mono))
                                 {
-                                    MonoModule = mono,
-                                    Id = p.Id,
-                                    Name = p.ProcessName
-                                });
+                                    Log($"\t\tMono found in process: {p.ProcessName}.exe\r\n");
+                                    processes.Add(new MonoProcess
+                                    {
+                                        MonoModule = mono,
+                                        Id = p.Id,
+                                        Name = p.ProcessName
+                                    });
 
-                                break; //Add J.E
+                                    break; //Add J.E
+                                }
+
+                                Native.CloseHandle(handle);
                             }
-
-                            Native.CloseHandle(handle);
                         }
+                    }
+                    catch (InjectorException ie)
+                    {
+                        Log($"\tERROR looking at {p.ProcessName}.exe: {ie.Message}\r\n");
                     }
                 }
             });
@@ -104,6 +113,11 @@ namespace SharpMonoInjector.Gui.ViewModels
             }
 
             IsRefreshing = false;
+        }
+
+        private static void Log(string msg)
+        {
+            File.AppendAllText(AppDomain.CurrentDomain.BaseDirectory + "\\DebugLog.txt", msg);
         }
 
         private void ExecuteBrowseCommand(object parameter)
@@ -127,7 +141,7 @@ namespace SharpMonoInjector.Gui.ViewModels
 
         private void ExecuteInjectCommand(object parameter)
         {
-            IntPtr handle = Native.OpenProcess(ProcessAccessRights.PROCESS_ALL_ACCESS, false, SelectedProcess.Id);
+            var handle = Native.OpenProcess(ProcessAccessRights.PROCESS_ALL_ACCESS, false, SelectedProcess.Id);
 
             if (handle == IntPtr.Zero)
             {
